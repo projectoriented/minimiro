@@ -1,0 +1,3 @@
+[submodule "NucFreq"]
+	path = NucFreq
+	url = git@github.com:mrvollger/NucFreq.git

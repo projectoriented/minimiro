@@ -8,7 +8,6 @@ import pandas as pd
 
 configfile: "minimiro.yaml"
 SDIR=os.path.dirname(workflow.snakefile)
-DEBUG=True
 
 shell.prefix(f"source {SDIR}/env.cfg ; set -eo pipefail; ")
 
@@ -46,18 +45,16 @@ wildcard_constraints:
 
 rule all:
 	input:
-		pdf	= expand("minimiro_smk_out/{SM}_{SCORE}_aln.pdf", SM=SMS, SCORE=SCORES),
-		png	= expand("minimiro_smk_out/{SM}_coverage.png", SM=list(BAMS.keys())),
+		pdf	= expand("minimiro/{SM}_{SCORE}_aln.pdf", SM=SMS, SCORE=SCORES),
+		png	= expand("minimiro/{SM}_coverage.png", SM=list(BAMS.keys())),
 
-# delete if not debug
-def tempd(fname):
-	if(DEBUG):
-		return(fname)
-	return(temp(fname))
+
+# -------- Input Functions -------- #
 
 def get_ref(wildcards):
 	SM = str(wildcards.SM)
 	return(RS[SM])
+
 def get_query(wildcards):
 	SM = str(wildcards.SM)
 	return(QS[SM])
@@ -65,6 +62,7 @@ def get_query(wildcards):
 def get_ref_rgns(wildcards):
 	SM = str(wildcards.SM)
 	return( " ".join( RGNS[SM] ) )
+
 def get_query_rgns(wildcards):
 	SM = str(wildcards.SM)
 	return( " ".join( QRGNS[SM] ) )
@@ -73,71 +71,6 @@ def get_rc(wildcards):
 	SM = str(wildcards.SM)
 	return(RCS[SM])
 
-rule get_rgns:
-	input:
-		ref=get_ref, 
-		query=get_query,
-	output:
-		ref = tempd("temp/{SM}_ref.fasta"),
-		query = tempd("temp/{SM}_query.fasta"),
-	params:
-		rgns = get_ref_rgns,
-		qrgns = get_query_rgns,
-		rc = get_rc,
-	threads:1
-	run:
-		shell("samtools faidx {input.ref} {params.rgns} > {output.ref}")	
-		if(params["rc"]):
-			shell("samtools faidx {input.query} {params.qrgns} | seqtk seq -r - > {output.query}")	
-		else:	
-			shell("samtools faidx {input.query} {params.qrgns} > {output.query}")	
-
-rule RepeatMasker:
-	input:
-		fasta = "temp/{SM}_{SEQ}.fasta",
-	output:
-		out = tempd("temp/{SM}_{SEQ}.fasta.out"),
-		cat = tempd("temp/{SM}_{SEQ}.fasta.cat"),
-		tbl = tempd("temp/{SM}_{SEQ}.fasta.tbl"),
-		msk = tempd("temp/{SM}_{SEQ}.fasta.masked"),
-	resources:
-		mem=8,
-	threads:8
-	shell:"""
-RepeatMasker \
-	-e ncbi \
-	-species human \
-	-dir $(dirname {input.fasta}) \
-	-pa {threads} \
-	{input.fasta}
-"""
-
-
-rule DupMasker:
-	input:
-		fasta = "temp/{SM}_{SEQ}.fasta",
-		out = rules.RepeatMasker.output.out,
-	output:
-		dups = "temp/{SM}_{SEQ}.fasta.duplicons",
-	threads:8
-	shell:"""
-DupMaskerParallel -pa {threads} -engine ncbi \
-	{input.fasta}
-"""
-#-pa {threads} \
-
-rule DupMaskerColor:
-	input:
-		dups = rules.DupMasker.output.dups,
-	output:
-		dupcolor = "temp/{SM}_{SEQ}.fasta.duplicons.extra",
-	shell:"""
-{SDIR}/scripts/DupMask_parserV6.pl -i {input.dups} -E -o {output.dupcolor}
-"""
-
-#
-# rules to get genes
-#
 def get_genes(wildcards):
 	SM = str(wildcards.SM)
 	return(GENES[SM])
@@ -153,7 +86,96 @@ def get_ref_bed(wildcards):
 			rtn.append('{}\t{}\t{}\n'.format(rgn, 0, 1000000000))
 	return( rtn )
 
+def get_score(wildcards):
+	return( int(str(wildcards.SCORE)))
 
+def get_bam(wc):
+	SM = str(wc.SM)
+	return(BAMS[SM])
+
+def get_rb_msize(wildcards):
+	SM = str(wildcards.SM)
+	return int(config[SM].get('rb_msize', 1000))
+
+
+# -------- Begin rules -------- #
+
+rule get_rgns:
+	input:
+		ref=get_ref, 
+		query=get_query,
+	output:
+		ref = temp("temp/{SM}_ref.fasta"),
+		query = temp("temp/{SM}_query.fasta"),
+	params:
+		rgns = get_ref_rgns,
+		qrgns = get_query_rgns,
+		rc = get_rc,
+	threads: 1
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
+        hrs = 72
+	run:
+		shell("samtools faidx {input.ref} {params.rgns} > {output.ref}")	
+		if(params["rc"]):
+			shell("samtools faidx {input.query} {params.qrgns} | seqtk seq -r - > {output.query}")	
+		else:	
+			shell("samtools faidx {input.query} {params.qrgns} > {output.query}")	
+
+rule RepeatMasker:
+	input:
+		fasta = temp("temp/{SM}_{SEQ}.fasta"),
+	output:
+		out = temp("temp/{SM}_{SEQ}.fasta.out"),
+		cat = temp("temp/{SM}_{SEQ}.fasta.cat"),
+		tbl = temp("temp/{SM}_{SEQ}.fasta.tbl"),
+		msk = temp("temp/{SM}_{SEQ}.fasta.masked"),
+	threads: 8
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (2 * threads),
+        hrs = 72
+	shell:
+		"""
+		RepeatMasker \
+			-e ncbi \
+			-species human \
+			-dir $(dirname {input.fasta}) \
+			-pa {threads} \
+			{input.fasta}
+		"""
+
+rule DupMasker:
+	input:
+		fasta = temp("temp/{SM}_{SEQ}.fasta"),
+		out = rules.RepeatMasker.output.out,
+	output:
+		dups = temp("temp/{SM}_{SEQ}.fasta.duplicons"),
+	threads: 8
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (2 * threads),
+        hrs = 72
+	shell:
+		"""
+		DupMaskerParallel \
+			-pa {threads} \
+			-engine ncbi \
+			{input.fasta}
+		"""
+
+
+rule DupMaskerColor:
+	input:
+		dups = rules.DupMasker.output.dups,
+	output:
+		dupcolor = temp("temp/{SM}_{SEQ}.fasta.duplicons.extra"),
+	threads: 1
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
+        hrs = 72
+	shell:
+		"""
+		{SDIR}/scripts/DupMask_parserV6.pl -i {input.dups} -E -o {output.dupcolor}
+		"""
 
 
 rule get_cds:
@@ -162,10 +184,14 @@ rule get_cds:
 		bed = get_genes,
 		ref = rules.get_rgns.output.ref,
 	output:
-		fasta = "temp/{SM}.genes.fasta",
-		bed = "temp/{SM}.ref.genes.bed",
-		bed12 = "temp/{SM}.ref.genes.12.bed",
+		fasta = temp("temp/{SM}.genes.fasta"),
+		bed = temp("temp/{SM}.ref.genes.bed"),
+		bed12 = temp("temp/{SM}.ref.genes.12.bed"),
 		tmp = temp("temp/tmp.{SM}.ref.genes.bed"),
+	threads: 1
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
+        hrs = 72
 	params:
 		bed = get_ref_bed,
 	run:
@@ -204,43 +230,43 @@ rule get_cds:
 		shell("bedtools getfasta -s -name -split -fi {input.ref} -bed {output.bed12} > {output.fasta}")
 
 
-
-
-
 rule query_genes:
 	input:
 		cds = rules.get_cds.output.fasta,
 		query = rules.get_rgns.output.query,
 	output:
-		bam = "temp/{SM}.query.genes.bam",
-		bed = "temp/{SM}.query.genes.bed",
-		bed12 = "temp/{SM}.query.genes.12.bed",
+		bam = temp("temp/{SM}.query.genes.bam",
+		bed = temp("temp/{SM}.query.genes.bed",
+		bed12 = temp("temp/{SM}.query.genes.12.bed",
 	threads: 8
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (4 * threads),
+        hrs = 72
 	run:
-		shell("minimap2 -p 0.98 --eqx -ax splice -C5 -O6,24 -B4 -t {threads} --cap-sw-mem=64g {input.query} {input.cds} | samtools view -b - | samtools sort - > {output.bam}")
-		shell("bedtools bamtobed -bed12 -i {output.bam} > {output.bed12}")
-		shell("bedtools bed12tobed6 -i {output.bed12} > {output.bed}")
-
-
-#
-# make the alignments and the miropeats 	
-#
-def get_score(wildcards):
-	return( int(str(wildcards.SCORE)))
+	shell:
+		"""
+		minimap2 -p 0.98 --eqx -ax splice -C5 -O6,24 -B4 -t {threads} --cap-sw-mem=64g {input.query} {input.cds} | samtools view -b - | samtools sort - > {output.bam}
+		bedtools bamtobed -bed12 -i {output.bam} > {output.bed12}
+		bedtools bed12tobed6 -i {output.bed12} > {output.bed}
+		"""
 
 rule minimap2:
 	input:
 		ref = rules.get_rgns.output.ref,
 		query = rules.get_rgns.output.query,
 	output:
-		paf = tempd("temp/{SM}_{SCORE}_aln.paf"),
+		paf = temp("temp/{SM}_{SCORE}_aln.paf"),
 	params:
 		score = get_score,
 	threads: 16
-	shell:"""
-# YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
-minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
-"""
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (4 * threads),
+        hrs = 72
+	shell:
+		"""
+		# YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
+		minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
+		"""
 
 
 rule minimiro:
@@ -251,9 +277,12 @@ rule minimiro:
 		genes = rules.get_cds.output.bed12,
 		query_genes = rules.query_genes.output.bed12,
 	output:
-		ps	= "temp/{SM}_{SCORE}_aln.ps",
-		pdf	= "minimiro_smk_out/{SM}_{SCORE}_aln.pdf",
+		ps	= temp("temp/{SM}_{SCORE}_aln.ps"),
+		pdf	= "minimiro/{SM}_{SCORE}_aln.pdf",
 	threads: 1
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
+        hrs = 72
 	shell:"""
 {SDIR}/minimiro.py --paf {input.paf} \
 	--rm {input.rmout} \
@@ -264,24 +293,19 @@ rule minimiro:
 	ps2pdf {output.ps} {output.pdf}
 """
 
-def get_bam(wc):
-	SM = str(wc.SM)
-	return(BAMS[SM])
-
 rule coverage:
 	input:
 		bam = get_bam,
 	output:
-		png	= "minimiro_smk_out/{SM}_coverage.png",
+		png	= "minimiro/{SM}_coverage.png",
+	threads: 1
+    resources:
+        mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
+        hrs = 72
 	params:
 		rgn = get_query_rgns, 
-	threads: 1
-	shell:"""
-NucPlot.py {input.bam} {output.png} --regions {params.rgn} --height 4 --width 16
-"""
-
-
-
-
-
+	shell:
+		"""
+		NucFreq/NucPlot.py {input.bam} {output.png} --regions {params.rgn} --height 4 --width 16
+		"""
 
