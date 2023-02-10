@@ -253,28 +253,44 @@ rule query_genes:
 		bedtools bed12tobed6 -i {output.bed12} > {output.bed}
 		"""
 
-rule minimap2:
+if not bam:
+	rule minimap2:
+		input:
+			ref = rules.get_rgns.output.ref,
+			query = rules.get_rgns.output.query,
+		output:
+			paf = temp("temp/{SM}_{SCORE}_aln.paf"),
+		params:
+			score = get_score,
+		threads: 16
+		resources:
+			mem = lambda wildcards, attempt, threads: attempt * (4 * threads),
+			hrs = 72
+		shell:
+			"""
+			# YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
+			minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
+			"""
+
+rule get_miropeat_intervals:
 	input:
-		ref = rules.get_rgns.output.ref,
-		query = rules.get_rgns.output.query,
+		paf = "temp/{SM}_{SCORE}_aln.paf"
 	output:
-		paf = temp("temp/{SM}_{SCORE}_aln.paf"),
+		broken_paf = temp("temp/{SM}_{SCORE}_broken.paf"),
 	params:
-		score = get_score,
-	threads: 16
+		rb_msize = get_rb_msize,
+	threads: 1
     resources:
-        mem = lambda wildcards, attempt, threads: attempt * (4 * threads),
+        mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
         hrs = 72
 	shell:
 		"""
-		# YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
-		minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
+		rustybam breakpaf --max-size {params.rb_msize} lifted.paf > broken.paf
 		"""
-
 
 rule minimiro:
 	input:
-		paf = rules.minimap2.output.paf,
+		paf = pass # placeholder until I write fn to insert either paf from bam or directly minimap2,
 		rmout = expand("temp/{{SM}}_{SEQ}.fasta.out", SEQ=SEQS),
 		dmout = expand("temp/{{SM}}_{SEQ}.fasta.duplicons.extra", SEQ=SEQS),
 		genes = rules.get_cds.output.bed12,
