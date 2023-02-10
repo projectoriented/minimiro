@@ -5,7 +5,6 @@ import re
 import pandas as pd 
 
 
-
 configfile: "minimiro.yaml"
 SDIR=os.path.dirname(workflow.snakefile)
 
@@ -22,6 +21,7 @@ QRGNS = {}
 RCS = {}
 GENES = {}
 BAMS = {}
+
 for SM in SMS:
 	RS[SM] = config[SM]["ref"] # reference seqeunce 
 	assert os.path.exists(RS[SM]+".fai")
@@ -195,13 +195,16 @@ rule get_cds:
 	params:
 		bed = get_ref_bed,
 	run:
-		# read in regular symbol names 
-		convert = {}
-		for line in open(f"{SDIR}/data/gene_conversion.txt").readlines():
-			t = line.strip().split()
-			if(len(t) > 1):
-				convert[  t[1].split(".")[0] ] = t[0]
-	
+		def gene_converter(gene_name):
+			# read in regular symbol names 
+			convert = {}
+			with open(f"{SDIR}/data/gene_conversion.txt") as infile:
+				data = infile.readlines():
+				for line in data:
+					t = line.strip().split()
+					if(len(t) > 1):
+						return convert[  t[1].split(".")[0] ] = t[0]
+		
 		# make a bed file with all the corrdiantes in the correct space
 		rtn = ""
 		shell("> {output.fasta}")
@@ -235,9 +238,9 @@ rule query_genes:
 		cds = rules.get_cds.output.fasta,
 		query = rules.get_rgns.output.query,
 	output:
-		bam = temp("temp/{SM}.query.genes.bam",
-		bed = temp("temp/{SM}.query.genes.bed",
-		bed12 = temp("temp/{SM}.query.genes.12.bed",
+		bam = temp("temp/{SM}.query.genes.bam"),
+		bed = temp("temp/{SM}.query.genes.bed"),
+		bed12 = temp("temp/{SM}.query.genes.12.bed"),
 	threads: 8
     resources:
         mem = lambda wildcards, attempt, threads: attempt * (4 * threads),
