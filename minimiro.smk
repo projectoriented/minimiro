@@ -25,10 +25,10 @@ BAMS = {}
 for SM in SMS:
 	RS[SM] = config[SM]["ref"] # reference seqeunce 
 	assert os.path.exists(RS[SM]+".fai")
-	RGNS[SM]	=	config[SM]["regions"] # region(s) to pull from reference 
-	QS[SM]		=	config[SM]["query"] # query sequence
+	RGNS[SM] = config[SM]["regions"] # region(s) to pull from reference 
+	QS[SM] = config[SM]["query"] # query sequence
 	assert os.path.exists(QS[SM]+".fai")
-	QRGNS[SM]	=	config[SM]["queryregions"] # region(s) to pull from query
+	QRGNS[SM] = config[SM]["queryregions"] # region(s) to pull from query
 	if("rc" in config[SM]):
 		RCS[SM] = config[SM]["rc"] 
 	else: 
@@ -135,14 +135,14 @@ rule RepeatMasker:
         mem = lambda wildcards, attempt, threads: attempt * (2 * threads),
         hrs = 72
 	shell:
-		"""
-		RepeatMasker \
-			-e ncbi \
-			-species human \
-			-dir $(dirname {input.fasta}) \
-			-pa {threads} \
-			{input.fasta}
-		"""
+	"""
+	RepeatMasker \
+		-e ncbi \
+		-species human \
+		-dir $(dirname {input.fasta}) \
+		-pa {threads} \
+		{input.fasta}
+	"""
 
 rule DupMasker:
 	input:
@@ -155,12 +155,12 @@ rule DupMasker:
         mem = lambda wildcards, attempt, threads: attempt * (2 * threads),
         hrs = 72
 	shell:
-		"""
-		DupMaskerParallel \
-			-pa {threads} \
-			-engine ncbi \
-			{input.fasta}
-		"""
+	"""
+	DupMaskerParallel \
+		-pa {threads} \
+		-engine ncbi \
+		{input.fasta}
+	"""
 
 
 rule DupMaskerColor:
@@ -173,9 +173,9 @@ rule DupMaskerColor:
         mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
         hrs = 72
 	shell:
-		"""
-		{SDIR}/scripts/DupMask_parserV6.pl -i {input.dups} -E -o {output.dupcolor}
-		"""
+	"""
+	{SDIR}/scripts/DupMask_parserV6.pl -i {input.dups} -E -o {output.dupcolor}
+	"""
 
 
 rule get_cds:
@@ -247,11 +247,11 @@ rule query_genes:
         hrs = 72
 	run:
 	shell:
-		"""
-		minimap2 -p 0.98 --eqx -ax splice -C5 -O6,24 -B4 -t {threads} --cap-sw-mem=64g {input.query} {input.cds} | samtools view -b - | samtools sort - > {output.bam}
-		bedtools bamtobed -bed12 -i {output.bam} > {output.bed12}
-		bedtools bed12tobed6 -i {output.bed12} > {output.bed}
-		"""
+	"""
+	minimap2 -p 0.98 --eqx -ax splice -C5 -O6,24 -B4 -t {threads} --cap-sw-mem=64g {input.query} {input.cds} | samtools view -b - | samtools sort - > {output.bam}
+	bedtools bamtobed -bed12 -i {output.bam} > {output.bed12}
+	bedtools bed12tobed6 -i {output.bed12} > {output.bed}
+	"""
 
 if not bam:
 	rule minimap2:
@@ -267,10 +267,10 @@ if not bam:
 			mem = lambda wildcards, attempt, threads: attempt * (4 * threads),
 			hrs = 72
 		shell:
-			"""
-			# YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
-			minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
-			"""
+		"""
+		# YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
+		minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
+		"""
 
 rule get_miropeat_intervals:
 	input:
@@ -284,9 +284,9 @@ rule get_miropeat_intervals:
         mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
         hrs = 72
 	shell:
-		"""
-		rustybam breakpaf --max-size {params.rb_msize} lifted.paf > broken.paf
-		"""
+	"""
+	rustybam breakpaf --max-size {params.rb_msize} lifted.paf > broken.paf
+	"""
 
 rule minimiro:
 	input:
@@ -302,15 +302,16 @@ rule minimiro:
     resources:
         mem = lambda wildcards, attempt, threads: attempt * (1 * threads),
         hrs = 72
-	shell:"""
-{SDIR}/minimiro.py --paf {input.paf} \
-	--rm {input.rmout} \
-	--dm {input.dmout} \
-	--bed {input.genes} {input.query_genes} \
-	--bestn 1000 \
-	-o {output.ps} && \
+	shell:
+	"""
+	{SDIR}/minimiro.py --paf {input.paf} \
+		--rm {input.rmout} \
+		--dm {input.dmout} \
+		--bed {input.genes} {input.query_genes} \
+		--bestn 1000 \
+		-o {output.ps} && \
 	ps2pdf {output.ps} {output.pdf}
-"""
+	"""
 
 rule coverage:
 	input:
@@ -324,7 +325,7 @@ rule coverage:
 	params:
 		rgn = get_query_rgns, 
 	shell:
-		"""
-		NucFreq/NucPlot.py {input.bam} {output.png} --regions {params.rgn} --height 4 --width 16
-		"""
+	"""
+	NucFreq/NucPlot.py {input.bam} {output.png} --regions {params.rgn} --height 4 --width 16
+	"""
 
