@@ -215,18 +215,12 @@ rule get_cds:
     params:
         bed=get_ref_bed,
     run:
-        # make a bed file with all the corrdiantes in the correct space
+        # make a bed file with all the coordinates in the correct space
         rtn = ""
-        shell("> {output.fasta}")
         for bed in params["bed"]:
-            # shell('bedtools intersect -a {input.bed} -b <(printf "{bed}") | bedtools bed12tobed6 -i /dev/stdin > {output.tmp}')
             shell(
                 'bedtools intersect -f 1.0 -a {input.bed} -b <(printf "{bed}") > {output.tmp}'
             )
-
-            # get all the cds seqeunces for map to the query
-            # shell("bedtools getfasta -name -split -fi {input.fasta} -bed {output.tmp} >> {output.fasta}")
-
             chrm, start, end = bed.split()
             start = int(start)
             name = f"{chrm}:{start}-{end}"
@@ -235,6 +229,7 @@ rule get_cds:
                 t[0] = name
                 t[1] = int(t[1]) - start
                 t[2] = int(t[2]) - start
+                rtn += (11 * "{}\t" + "{}\n").format(*t)
         open(output["bed12"], "w+").write(rtn)
         shell("bedtools bed12tobed6 -i {output.bed12} > {output.bed}")
 
