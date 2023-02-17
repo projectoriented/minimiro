@@ -23,7 +23,7 @@ QS = {}
 QRGNS = {}
 RCS = {}
 GENES = {}
-SAM_TYPE = {}
+ALN = {}
 
 for SM in SMS:
     RS[SM] = config[SM]["ref"]  # reference seqeunce
@@ -38,8 +38,8 @@ for SM in SMS:
         RCS[SM] = False
     GENES[SM] = config[SM]["genes"]
 
-    if "sam_type" in config[SM]:
-        SAM_TYPE[SM] = config[SM]["sam_type"]
+    if "aln" in config[SM]:
+        ALN[SM] = config[SM]["aln"]
 
 
 wildcard_constraints:
@@ -51,7 +51,7 @@ wildcard_constraints:
 rule all:
     input:
         pdf=expand("minimiro/{SM}_{SCORE}_aln.pdf", SM=SMS, SCORE=SCORES),
-        png=expand("minimiro/{SM}_coverage.png", SM=list(SAM_TYPE.keys())),
+        png=expand("minimiro/{SM}_coverage.png", SM=list(ALN.keys())),
 
 
 # -------- Input Functions -------- #
@@ -103,14 +103,28 @@ def get_score(wildcards):
     return int(str(wildcards.SCORE))
 
 
-def get_bam(wildcards):
+def get_aln(wildcards):
     SM = str(wildcards.SM)
-    return SAM_TYPE[SM]
+    return ALN[SM]
 
 
 def get_svlen(wildcards):
     SM = str(wildcards.SM)
     return int(config[SM].get("svlen", 1000))
+
+
+def get_aln2paf(wildcards):
+    SM = str(wildcards.SM)
+    return int(config[SM].get("aln2paf", False))
+
+
+def get_target_paf(wildcards):
+    with checkpoints.skip_minimap2.get(sample=wildcards.SM).output.decision_txt.open() as f:
+        data = f.read().strip() == "True"
+        if data:
+            return "temp/{SM}_modified.paf"
+        else:
+            return "temp/{SM}_{SCORE}_aln.paf"
 
 
 # -------- Begin rules -------- #
@@ -156,11 +170,11 @@ rule RepeatMasker:
     shell:
         """
         RepeatMasker \
-        -e ncbi \
-        -species human \
-        -dir $(dirname {input.fasta}) \
-        -pa {threads} \
-        {input.fasta}
+            -e ncbi \
+            -species human \
+            -dir $(dirname {input.fasta}) \
+            -pa {threads} \
+            {input.fasta}
         """
 
 
@@ -259,8 +273,48 @@ rule query_genes:
         """
 
 
+# ---- If bam2paf is desired, minimap2 will be skipped ---- #
+checkpoint skip_minimap2:
+    input:
+        ref=rules.get_rgns.output.ref,
+        query=rules.get_rgns.output.query,
+    output:
+        decision_txt=temp("temp/{SM}_skip-minimap2.txt"),
+    params:
+        decision=get_aln2paf,
+    shell:
+        """
+        echo {params.decision} > {output.decision_txt}
+        """
+
+
+rule aln2paf:
+    input:
+        decision=rules.skip_minimap2.output.decision_txt,
+        alnmnt_file=get_aln,
+    output:
+        subset_sam=temp("temp/{SM}_subset.sam"),
+        raw_paf=temp("temp/{SM}_raw.paf"),
+        modified_paf=temp("temp/{SM}_modified.paf"),
+    params:
+        rgns=get_ref_rgns,
+        break_at_interval=get_svlen,
+    threads: 1
+    resources:
+        mem=lambda wildcards, attempt, threads: attempt * (1 * threads),
+        hrs=72,
+    shell:
+        """
+        # Subset the bam/cram/sam
+        samtools view --with-header --sam {input.alnmnt_file} {params.rgns} > {output.subset_sam}
+        paftools.js sam2paf -L {output.subset_sam} > {output.raw_paf}
+        rb trim-paf {output.raw_paf} | rb break-paf --max-size {params.break_at_interval} > {output.modified_paf}
+        """
+
+
 rule minimap2:
     input:
+        decision = rules.skip_minimap2.output.decision_txt,
         ref=rules.get_rgns.output.ref,
         query=rules.get_rgns.output.query,
     output:
@@ -277,27 +331,9 @@ rule minimap2:
         minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
         """
 
-
-rule get_miropeat_intervals:
-    input:
-        paf="temp/{SM}_{SCORE}_aln.paf",
-    output:
-        broken_paf=temp("temp/{SM}_{SCORE}_broken.paf"),
-    params:
-        break_at_interval=get_svlen,
-    threads: 1
-    resources:
-        mem=lambda wildcards, attempt, threads: attempt * (1 * threads),
-        hrs=72,
-    shell:
-        """
-        rustybam breakpaf --max-size {params.break_at_interval} {input.paf} > {output.broken_paf}
-        """
-
-
 rule minimiro:
     input:
-        paf="",
+        paf=get_target_paf,
         rmout=expand("temp/{{SM}}_{SEQ}.fasta.out", SEQ=SEQS),
         dmout=expand("temp/{{SM}}_{SEQ}.fasta.duplicons.extra", SEQ=SEQS),
         genes=rules.get_cds.output.bed12,
@@ -323,7 +359,7 @@ rule minimiro:
 
 rule coverage:
     input:
-        bam=get_bam,
+        bam=get_aln,
     output:
         png="minimiro/{SM}_coverage.png",
     threads: 1
