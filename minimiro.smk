@@ -23,7 +23,7 @@ QS = {}
 QRGNS = {}
 RCS = {}
 GENES = {}
-BAMS = {}
+SAM_TYPE = {}
 
 for SM in SMS:
     RS[SM] = config[SM]["ref"]  # reference seqeunce
@@ -38,8 +38,8 @@ for SM in SMS:
         RCS[SM] = False
     GENES[SM] = config[SM]["genes"]
 
-    if "bam" in config[SM]:
-        BAMS[SM] = config[SM]["bam"]
+    if "sam_type" in config[SM]:
+        SAM_TYPE[SM] = config[SM]["sam_type"]
 
 
 wildcard_constraints:
@@ -51,7 +51,7 @@ wildcard_constraints:
 rule all:
     input:
         pdf=expand("minimiro/{SM}_{SCORE}_aln.pdf", SM=SMS, SCORE=SCORES),
-        png=expand("minimiro/{SM}_coverage.png", SM=list(BAMS.keys())),
+        png=expand("minimiro/{SM}_coverage.png", SM=list(SAM_TYPE.keys())),
 
 
 # -------- Input Functions -------- #
@@ -103,14 +103,14 @@ def get_score(wildcards):
     return int(str(wildcards.SCORE))
 
 
-def get_bam(wc):
-    SM = str(wc.SM)
-    return BAMS[SM]
-
-
-def get_rb_msize(wildcards):
+def get_bam(wildcards):
     SM = str(wildcards.SM)
-    return int(config[SM].get("rb_msize", 1000))
+    return SAM_TYPE[SM]
+
+
+def get_svlen(wildcards):
+    SM = str(wildcards.SM)
+    return int(config[SM].get("svlen", 1000))
 
 
 # -------- Begin rules -------- #
@@ -284,14 +284,14 @@ rule get_miropeat_intervals:
     output:
         broken_paf=temp("temp/{SM}_{SCORE}_broken.paf"),
     params:
-        rb_msize=get_rb_msize,
+        break_at_interval=get_svlen,
     threads: 1
     resources:
         mem=lambda wildcards, attempt, threads: attempt * (1 * threads),
         hrs=72,
     shell:
         """
-        rustybam breakpaf --max-size {params.rb_msize} lifted.paf > broken.paf
+        rustybam breakpaf --max-size {params.break_at_interval} {input.paf} > {output.broken_paf}
         """
 
 
