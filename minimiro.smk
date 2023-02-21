@@ -360,9 +360,10 @@ rule minimiro:
 
 rule coverage:
     input:
-        bam=get_aln,
+        aln=get_aln,
     output:
         png="minimiro/{SM}_coverage.png",
+        subset_bam=temp("minimiro/{SM}_coverage.png"),
     threads: 1
     resources:
         mem=lambda wildcards, attempt, threads: attempt * (1 * threads),
@@ -371,5 +372,6 @@ rule coverage:
         rgn=get_query_rgns,
     shell:
         """
-        NucFreq/NucPlot.py {input.bam} {output.png} --regions {params.rgn} --height 4 --width 16
+        samtools view --with-header --bam {input.aln} {params.rgn} > {output.subset_bam}
+        NucFreq/NucPlot.py {output.subset_bam} {output.png} --regions {params.rgn} --height 4 --width 16
         """
