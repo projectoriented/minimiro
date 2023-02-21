@@ -119,7 +119,9 @@ def get_aln2paf(wildcards):
 
 
 def get_target_paf(wildcards):
-    with checkpoints.skip_minimap2.get(sample=wildcards.SM).output.decision_txt.open() as f:
+    with checkpoints.skip_minimap2.get(
+        sample=wildcards.SM
+    ).output.decision_txt.open() as f:
         data = f.read().strip() == "True"
         if data:
             return "temp/{SM}_modified.paf"
@@ -273,7 +275,7 @@ rule query_genes:
         """
 
 
-# ---- If bam2paf is desired, minimap2 will be skipped ---- #
+# ---- If aln2paf is desired, minimap2 will be skipped ---- #
 checkpoint skip_minimap2:
     input:
         ref=rules.get_rgns.output.ref,
@@ -290,7 +292,6 @@ checkpoint skip_minimap2:
 
 rule aln2paf:
     input:
-        decision=rules.skip_minimap2.output.decision_txt,
         alnmnt_file=get_aln,
     output:
         subset_sam=temp("temp/{SM}_subset.sam"),
@@ -314,7 +315,6 @@ rule aln2paf:
 
 rule minimap2:
     input:
-        decision = rules.skip_minimap2.output.decision_txt,
         ref=rules.get_rgns.output.ref,
         query=rules.get_rgns.output.query,
     output:
@@ -330,6 +330,7 @@ rule minimap2:
         # YOU HAVE TO INCLUDE --cs FOR MINIMIRO TO WORK
         minimap2 -x asm20 -r 200000 -s {params.score} -p 0.01 -N 1000 --cs {input.ref} {input.query} > {output.paf}
         """
+
 
 rule minimiro:
     input:
